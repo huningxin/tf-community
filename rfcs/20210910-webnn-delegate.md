@@ -45,6 +45,10 @@ Make sure you’ve thought through and addressed the following sections. If a se
 ### Alternatives Considered
 * Make sure to discuss the relative merits of alternatives to your proposal.
 
+One alternative solution would be implementing a WebGL/WebGPU delegate. TensorFlow.js already uses WebGL and are working on a WebGPU backend. We believe this alternative is insufficient for two reasons. First, although graphics abstraction layers provide the flexibility of general programmability of the GPU graphics pipelines, they are unable to tap into hardware-specific optimizations and special instructions that are available to the operating system internals. The hardware ecosystem has been investing significantly in innovating in the ML space, and much of that is about improving the performance of intensive compute workloads in machine learning scenarios. Some key technologies that are important to model performance may not be uniformly accessible to applications through generic graphics pipeline states. Secondly, there are accelerators, such as DPS and Edge TPU, that are not exposed through WebGL and WebGPU API. A WebGL/WebGPU delegate would not be able to enable the hardware accelerations on those accelerators.
+
+Actually, the WebNN delegate would run on top of [WebNN-polyfill](https://github.com/webmachinelearning/webnn-polyfill), a JavaScript implementation of WebNN API based on TensorFlow.js ops. Through this path, TensorFlow Lite WebAssembly runtime could leverage the WebGL/WebGPU implementation of TensorFlow.js ops instead of implementing a WebGL/WebGPU delegate.
+
 ### Performance Implications
 * Do you expect any (speed / memory)? How will you confirm?
 * There should be microbenchmarks. Are there?
