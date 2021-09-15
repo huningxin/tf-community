@@ -81,8 +81,15 @@ Proposal: The code would be maintained by TensorFlow.js Special Interest Group (
 * Platforms: does this work on all platforms supported by TensorFlow? If not, why is that ok? Will it work on embedded/mobile? Does it impact automatic code generation or mobile stripping tooling? Will it work with transformation tools?
 * Execution environments (Cloud services, accelerator hardware): what impact do you expect and how will you confirm?
 
+The WebNN delegate works on all platforms supported by TensorFlow Lite WebAssembly runtime that include:
+* Web browsers without WebNN API implemented: it is supported by WebNN-polyfill
+* Web browsers with WebNN API implemented: it is supported by the native WebNN implementation of the browser
+* Node.js/Electron.js: it is supported by the WebNN-native binding for Node.js
+
 ### Best Practices
 * Does this proposal change best practices for some aspect of using/developing TensorFlow? How will these changes be communicated/enforced?
+
+This change will follow the [TensorFlow Lite delegate development guide](https://www.tensorflow.org/lite/performance/implementing_delegate) and won't change any best practices. 
 
 ### Tutorials and Examples
 * If design changes existing API or creates new ones, the design owner should create end-to-end examples (ideally, a tutorial) which reflects how new feature will be used. Some things to consider related to the tutorial:
@@ -90,6 +97,98 @@ Proposal: The code would be maintained by TensorFlow.js Special Interest Group (
     - It should show the usage of the new feature in an end to end example (from data reading to serving, if applicable). Many new features have unexpected effects in parts far away from the place of change that can be found by running through an end-to-end example. TFX [Examples](https://github.com/tensorflow/tfx/tree/master/tfx/examples) have historically been good in identifying such unexpected side-effects and are as such one recommended path for testing things end-to-end.
     - This should be written as if it is documentation of the new feature, i.e., consumable by a user, not a TensorFlow developer. 
     - The code does not need to work (since the feature is not implemented yet) but the expectation is that the code does work before the feature can be merged. 
+
+The C++ example that enables WebNN delegate.
+```c++
+// Available options.
+struct TFLiteWebModelRunnerOptions {
+  // Set the number of threads available to the interpreter.
+  // -1 means to let interpreter set the threads count available to itself.
+  int num_threads = kDefaultNumThreads;
+
+  // Enable WebNN delegate or not.
+  bool enable_webnn_delegate = false;
+
+  // Device preference of WebNN delegate: 0 - default, 1 - gpu, 2 - cpu.
+  int webnn_device_preference = 0;
+};
+
+TfLiteStatus TFLiteWebModelRunner::InitFromBuffer(
+    const char* model_buffer_data, size_t model_buffer_size,
+    std::unique_ptr<tflite::OpResolver> resolver) {
+  // Initilaize the model from flatbuffer.
+  const char* model_buffer = reinterpret_cast<const char*>(model_buffer_data);
+  flatbuffers::Verifier verifier(reinterpret_cast<const uint8_t*>(model_buffer),
+                                 model_buffer_size);
+  if (!tflite::VerifyModelBuffer(verifier)) {
+    return kTfLiteError;
+  }
+  model_ =
+      tflite::FlatBufferModel::BuildFromBuffer(model_buffer, model_buffer_size);
+
+  // Initialize the interpreter from the model.
+  const auto interpreter_builder_result =
+      tflite::InterpreterBuilder(model_->GetModel(), *resolver, nullptr)(
+          &interpreter_, options_.num_threads);
+  if (interpreter_builder_result != kTfLiteOk) {
+    return interpreter_builder_result;
+  }
+  if (!model_->initialized()) {
+    return kTfLiteError;
+  }
+
+  // Enable WebNN delegate if requested.
+  if (options_.enable_webnn_delegate) {
+    TfLiteWebNNDelegateOptions options =
+        TfLiteWebNNDelegateOptionsDefault();
+    options.devicePreference = options_.webnn_device_preference;
+    auto webnn_delegate = TfLiteWebNNDelegateCreate(&options);
+    auto delegate_ptr = tflite::Interpreter::TfLiteDelegatePtr(webnn_delegate, [](TfLiteDelegate* delegate) {
+      TfLiteWebNNDelegateDelete(delegate);
+    });
+    if (interpreter_->ModifyGraphWithDelegate(std::move(delegate_ptr)) != kTfLiteOk) {
+        printf("Failed to apply webnn delegate.\n");
+    }
+  }
+
+  // Allocate memory for the tensors in the model.
+  return interpreter_->AllocateTensors();
+}
+```
+
+The JavaScript example that use WebNN delegate.
+```javascript
+// Create the model runner with the model.
+
+// Load WASM module and model.
+const [module, modelArrayBuffer] = await Promise.all([
+    tflite_model_runner_ModuleFactory(),
+    (await fetch(MODEL_PATH)).arrayBuffer(),
+]);
+const modelBytes = new Uint8Array(modelArrayBuffer);
+const offset = module._malloc(modelBytes.length);
+module.HEAPU8.set(modelBytes, offset);
+
+// Create model runner with WebNN delegate enabled.
+const modelRunnerResult =
+    module.TFLiteWebModelRunner.CreateFromBufferAndOptions(
+        offset, modelBytes.length, {
+        numThreads: Math.min(
+            4, Math.max(1, (navigator.hardwareConcurrency || 1) / 2)),
+        enableWebNNDelegate: true,
+        webNNDevicePreference: 0)
+    });
+if (!modelRunnerResult.ok()) {
+    throw new Error(
+        'Failed to create TFLiteWebModelRunner: ' + modelRunner.errorMessage());
+}
+
+
+const modelRunner = modelRunnerResult.value();
+
+// Set input and invoke modelRunner.Infer() with WebNN delegate.
+
+```
 
 ### Compatibility
 * Does the design conform to the backwards & forwards compatibility [requirements](https://www.tensorflow.org/programmers_guide/version_compat)?
@@ -100,8 +199,23 @@ Proposal: The code would be maintained by TensorFlow.js Special Interest Group (
     - Will this work on GPU/TPU?
     - How will it serialize to a SavedModel?
 
+The change in this proposal concerns the low-level constructs inside the TensorFlow Lite WebAssembly runtime with minimal to no impact to the high-level exposures and API. The existing models supported by TensorFlow Lite WebAssembly runtime will be supported with WebNN delegate enabled.
+
 ### User Impact
 * What are the user-facing changes? How will this feature be rolled out?
+
+This feature will be rolled out with the tfjs-tflite. There are two ways:
+
+Via NPM
+```js
+// Import @tensorflow/tfjs-tflite.
+import * as tflite from '@tensorflow/tfjs-tflite';
+```
+
+Via a script tag
+```js
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-tflite/dist/tf-tflite.min.js"></script>
+```
 
 ## Detailed Design
 
@@ -112,3 +226,6 @@ above.
 ## Questions and Discussion Topics
 
 Seed this with open questions you require feedback on from the RFC process.
+
+* What's the path to support GPU buffers by TensorFlow Lite WebAssembly runtime? The use case is to interact with WebGL/WebGPU based pre and post-processing code. WebNN API supports taking WebGL and WebGPU textures/buffers as inputs and outputs.
+* What's the path to integrate this change into MediaPipe Web solution.
