@@ -73,6 +73,10 @@ The TensorFlow Lite WebNN delegate takes a dependency on the WebNN API and imple
 * Do you expect changes to binary size / startup time / build time / test times?
 * Who will maintain this code? Is this code in its own buildable unit? Can this code be tested in its own? Is visibility suitably restricted to only a small API surface for others to use?
 
+The WebNN delegate build will be produced with a newly added Bazel BUILD rule (e.g. cc_library with name `webnn_delegate`). The build will compile WebNN delegate sources (e.g. `webnn_delegate.h` and `webnn_delegate.cc`). According to the current implementation of 10 ops, the compilation time is about a few seconds. And the size of WebAssembly binary is increased by about 20KB. With more ops are implemented, the binary size is expected to be increased by another dozen of KB.
+
+Proposal: The code would be maintained by TensorFlow.js Special Interest Group (SIG).
+
 ### Platforms and Environments
 * Platforms: does this work on all platforms supported by TensorFlow? If not, why is that ok? Will it work on embedded/mobile? Does it impact automatic code generation or mobile stripping tooling? Will it work with transformation tools?
 * Execution environments (Cloud services, accelerator hardware): what impact do you expect and how will you confirm?
