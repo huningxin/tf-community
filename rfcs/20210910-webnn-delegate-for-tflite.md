@@ -41,10 +41,158 @@ your chosen approach is superior.
 
 Make sure you’ve thought through and addressed the following sections. If a section is not relevant to your specific proposal, please explain why, e.g. your RFC addresses a convention or process, not an API.
 
-We propose:
+The folder with path `tensorflow/lite/delegates/webnn` contains the WebNN delegate's implementation. The major part of the implementation is in `webnn_delegate.cc` and the interfaces are declared in `webnn_delegate.h`.
 
-1. 
+### Interfaces
 
+The `webnn_delegate.h` exposes `TfLiteWebNNDelegateOptions`, `TfLiteWebNNDelegateCreate` and `TfLiteWebNNDelegateDelete` interfaces.
+
+`TfLiteWebNNDelegateOptions` is a structure that is used to supply options when creating a WebNN delegate. The options map to [`MLContextOptions`](https://www.w3.org/TR/webnn/#dictdef-mlcontextoptions) for device and power preferences.
+
+It may be implemented as:
+```c++
+typedef struct {
+  // enum class DevicePreference : uint32_t {
+  //     Default = 0x00000000,
+  //     Gpu = 0x00000001,
+  //     Cpu = 0x00000002,
+  // };
+  uint32_t devicePreference;
+  // enum class PowerPreference : uint32_t {
+  //     Default = 0x00000000,
+  //     High_performance = 0x00000001,
+  //     Low_power = 0x00000002,
+  // };
+  uint32_t powerPreference;
+} TfLiteWebNNDelegateOptions;
+```
+
+`TfLiteWebNNDelegateOptionsDefault()` is used to create a structure with the default WebNN delegate options.
+```c++
+TfLiteWebNNDelegateOptions TfLiteWebNNDelegateOptionsDefault();
+```
+
+`TfLiteWebNNDelegateCreate()` is the main entry point to create a new instance of WebNN delegate. It takes `TfLiteWebNNDelegateOptions` and returns a pointer to  `TfLiteDelegate` that is defined in [`tensorflow/lite/c/common.h`](https://github.com/tensorflow/tensorflow/blob/master/tensorflow/lite/c/common.h). `TfLiteDelegate` is a structure that is the main interface TensorFlow Lite runtime interacts with WebNN delegate implementation. When `options` is set to `nullptr`, the above default values are used.
+```c++
+TfLiteDelegate* TfLiteWebNNDelegateCreate(const TfLiteWebNNDelegateOptions* options);
+```
+
+`TfLiteWebNNDelegateDelete()` destroys a delegate created with `TfLiteWebNNDelegateCreate()` call.
+```c++
+void TfLiteWebNNDelegateDelete(TfLiteDelegate* delegate);
+```
+
+### Implementation
+
+`webnn_delegate.cc` implements `TfLiteDelegate` and `TfLiteRegistration` defined in [`tensorflow/lite/c/common.h`](https://github.com/tensorflow/tensorflow/blob/master/tensorflow/lite/c/common.h) with `Delegate` and `Subgraph` classes. The implementations are in namespace `tflite::webnn::`.
+
+`Delegate` class implements the `TfLiteDelegate`. The following sample code list major methods and members that may be implemented for this class.
+
+```c++
+class Delegate {
+ public:
+  explicit Delegate(const TfLiteWebNNDelegateOptions* options);
+  TfLiteIntArray* PrepareOpsToDelegate(TfLiteContext* context);
+
+  // Other methods
+
+ private:
+  TfLiteDelegate delegate_ = {
+      reinterpret_cast<void*>(this),  // .data_
+      DelegatePrepare,                // .Prepare
+      nullptr,                        // .CopyFromBufferHandle
+      nullptr,                        // .CopyToBufferHandle
+      nullptr,                        // .FreeBufferHandle
+      kTfLiteDelegateFlagsNone,       // .flags
+  };
+
+  // WebNN MLContextOptions
+  MLContextOptions context_options_;
+
+  // Other members
+};
+```
+
+The constructor of `Delegate` translates the `TfLiteWebNNDelegateOptions` to `MLContextOptions`.
+
+The `delegate_` is the implementation of `TfLiteDelegate`.
+
+The `TfLiteDelegate::data_` is used to identify `Delegate` itself. 
+
+The `TfLiteDelegate::Prepare` function pointer is implemented by `DelegatePrepare()`. It is invoked by `ModifyGraphWithDelegate()`. This prepare is called, giving the delegate a view of the current graph through `TfLiteContext`. It looks at the nodes by `Delegate::PrepareOpsToDelegate()` and call `ReplaceNodeSubsetsWithDelegateKernels()` to ask the TensorFlow Lite runtime to create macro-nodes to represent delegated subgraphs (implemented by `Subgraph`) of the original graph.
+
+```c++
+TfLiteStatus DelegatePrepare(TfLiteContext* context, TfLiteDelegate* delegate) {
+  TfLiteIntArray* ops_to_replace =
+      static_cast<::tflite::webnn::Delegate*>(delegate->data_)
+          ->PrepareOpsToDelegate(context);
+  if (ops_to_replace == nullptr) {
+    return kTfLiteError;
+  }
+
+  const TfLiteStatus status = context->ReplaceNodeSubsetsWithDelegateKernels(
+      context, kSubgraphRegistration, ops_to_replace, delegate);
+  TfLiteIntArrayFree(ops_to_replace);
+  return status;
+}
+```
+
+`kSubgraphRegistration` is an instance of `TfLiteRegistration`. It bridges `TfLiteRegistration` to `Subgraph` class.
+
+```c++
+const TfLiteRegistration kSubgraphRegistration = {
+    /*.init=*/SubgraphInit,
+    /*.free=*/SubgraphFree,
+    /*.prepare=*/SubgraphPrepare,
+    /*.invoke=*/SubgraphInvoke,
+    /*.profiling_string=*/nullptr,
+    /*.builtin_code=*/0,
+    /*.custom_name=*/"TfLiteWebNNDelegate",
+    /*.version=*/2,
+};
+```
+
+Respectively, `SubgraphInit` calls `Subgraph::Create()`, `SubgraphFree` deletes `Subgraph` instance, `SubgraphPrepare` calls `Subgraph::Prepare()` and `SubgraphInvoke` calls `Subgraph::Invoke()`.
+
+`Subgraph` implements `TfLiteRegistration` by WebNN API (e.g. `ml::Graph`). The following sample code list major methods and members that may be implemented for this class.
+
+```c++
+class Subgraph {
+ public:
+  static Subgraph* Create(TfLiteContext* context,
+                          const TfLiteDelegateParams* params,
+                          const Delegate* delegate);
+  TfLiteStatus Prepare(TfLiteContext* context);
+  TfLiteStatus Invoke(TfLiteContext* context);
+  static TfLiteStatus VisitNode(
+      const ml::GraphBuilder& builder, TfLiteContext* context,
+      TfLiteRegistration* registration, TfLiteNode* node, int node_index,
+      const std::unordered_set<int>& quasi_static_tensors,
+      std::vector<ml::Operand>& webnn_operands,
+      std::vector<std::unique_ptr<char>>& constant_buffers);
+ private:
+  Subgraph(ml::Graph graph, std::unordered_set<int>&& inputs, std::unordered_set<int>&& outputs);
+  ml::Graph ml_graph_;
+  std::unordered_set<int> inputs_;
+  std::unordered_set<int> outputs_;
+  std::unordered_map<int, ml::Input> ml_inputs_;
+  std::unordered_map<int, ml::ArrayBufferView> ml_outputs_;
+```
+
+`Create()` takes `TfLiteContext`, `TfLiteDelegateParams`, `Delegate` and returns `Subgraph*` points to the new instance of `Subgraph`. The returned pointer will be stored with the node in the `user_data` field, accessible within prepare and invoke functions. 
+
+It basically implement the following steps:
+ 1. Create WebNN context and graph builder.
+ 2. Create WebNN input operands for TFLite input tensors and WebNN constant operands for TFLite constant tensors of this subgraph.
+ 3. Create WebNN operations for TFLite nodes of this subgraph.
+ 4. Build WebNN graph based on TFLite output tensors and save it to `ml_graph_`.
+
+`Invoke()` executes the delegated subgraph with inputs and outputs of the `TfLiteContext`. It basically implement the following steps:
+ 1. Create `ml::NamedInputs` and bind TFLite input tensors' buffer. The inputs are indexed by tensor ID (`int`).
+ 2. Create `ml::NamedOutputs` and bind TFLite output tensors' buffer. The outputs are indexed by tensor ID (`int`).
+ 3. Call `ml_graph_.Compute()` with inputs and outputs. After this call completes, the results are placed into the TFLite output tensors' buffer.
+
+`VisitNode`
 
 ### Alternatives Considered
 
