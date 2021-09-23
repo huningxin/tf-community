@@ -1,4 +1,4 @@
-# Title of RFC
+# WebNN Delegate for TensorFlow Lite
 
 | Status        | (Proposed)       |
 :-------------- |:---------------------------------------------------- |
@@ -15,9 +15,9 @@ Implement a new [TensorFlow Lite Delegate](https://www.tensorflow.org/lite/perfo
 
 To answer [the key user needs](https://docs.google.com/presentation/d/14hbhzAduLCr_deYi6u6Z0otCSngf0lbvaHL_icfTXmY/edit#slide=id.gd4f136c3ce_0_3) of supporting more models and improving the performance, TensorFlow.js has integrated the TensorFlow Lite WebAssembly runtime and exposed it via [tfjs-tflite API](https://js.tensorflow.org/api_tflite/0.0.1-alpha.4/) and [Task API](https://js.tensorflow.org/api_tasks/0.0.1-alpha.8/).
 
-However, the users of TensorFlow Lite WebAssembly runtime can only access [128-bit SIMD instructions](https://github.com/WebAssembly/simd) and [multi-threading](https://github.com/WebAssembly/threads) of CPU device via [XNNPACK delegate](https://github.com/huningxin/tensorflow/tree/webnn_delegate/tensorflow/lite/delegates/xnnpack). As a comparison, the users of TensorFlow Lite native runtime could access GPU acceleration via [GPU delegate](https://www.tensorflow.org/lite/performance/gpu) and DSP acceleration via [NNAPI delegate](https://www.tensorflow.org/lite/performance/nnapi). The lack of access to platform capabilities beneficial for ML such as dedicated ML hardware accelerators constraints the scope of experiences and leads to inefficient implementations on modern hardware. This disadvantages the users of TensorFlow Lite WebAssembly runtime in comparison to the users of its native runtime.
+However, the users of TensorFlow Lite WebAssembly runtime can only access [128-bit SIMD instructions](https://github.com/WebAssembly/simd) and [multi-threading](https://github.com/WebAssembly/threads) of CPU device via [XNNPACK delegate](https://github.com/huningxin/tensorflow/tree/webnn_delegate/tensorflow/lite/delegates/xnnpack). As a comparison, the users of TensorFlow Lite native runtime could access GPU acceleration via [GPU delegate](https://www.tensorflow.org/lite/performance/gpu) and other hardware accelerators via [NNAPI delegate](https://www.tensorflow.org/lite/performance/nnapi). The lack of access to platform capabilities beneficial for ML such as dedicated ML hardware accelerators constraints the scope of experiences and leads to inefficient implementations on modern hardware. This disadvantages the users of TensorFlow Lite WebAssembly runtime in comparison to the users of its native runtime.
 
-According to [data](https://www.w3.org/2020/06/machine-learning-workshop/talks/access_purpose_built_ml_hardware_with_web_neural_network_api.html#slide-4), when testing MobileNetV2 on a mainstream laptop, the native inference could be 9.7x faster than WebAssembly SIMD. If enabling WebAssembly multi-threading, the native inference is still about 4x faster. That's because the native inference could leverage the longer SIMD (e.g. [AVX 256](https://en.wikipedia.org/wiki/Advanced_Vector_Extensions)) and optimized memory layout (e.g. [blocked memory layout](https://oneapi-src.github.io/oneDNN/dev_guide_understanding_memory_formats.html)) for specific SIMD instruction set. The data also demostrates when native inference accesses the ML specialized hardware, such as [VNNI](https://en.wikichip.org/wiki/x86/avx512_vnni) instruction on laptop or DSP on smartphone, for the 8-bit quantized model inference, the performance gap would be even over 10x. This capability would not only speed up the inference performance but also help save the power consumption. For example, as the [slide](https://www.w3.org/2020/06/machine-learning-workshop/talks/accelerate_ml_inference_on_mobile_devices_with_android_nnapi.html#slide-8) illustrates, by leveraging DSP through NNAPI, the power reduction could be 3.7x.
+According to the [data](https://www.w3.org/2020/06/machine-learning-workshop/talks/access_purpose_built_ml_hardware_with_web_neural_network_api.html#slide-4), when testing MobileNetV2 on a mainstream laptop, the native inference could be 9.7x faster than WebAssembly SIMD. If enabling WebAssembly multi-threading, the native inference is still about 4x faster. That's because the native inference could leverage the longer SIMD (e.g. [AVX 256](https://en.wikipedia.org/wiki/Advanced_Vector_Extensions)) and optimized memory layout (e.g. [blocked memory layout](https://oneapi-src.github.io/oneDNN/dev_guide_understanding_memory_formats.html)) for that specific SIMD instruction set. The data also demostrates when native inference accesses the ML specialized hardware, such as [VNNI](https://en.wikichip.org/wiki/x86/avx512_vnni) instruction on laptop or DSP on smartphone, for the 8-bit quantized model inference, the performance gap would be even over 10x. This capability would not only speed up the inference performance but also help save the power consumption. For example, as the [slide](https://www.w3.org/2020/06/machine-learning-workshop/talks/accelerate_ml_inference_on_mobile_devices_with_android_nnapi.html#slide-8) illustrates, by leveraging DSP through NNAPI, the power reduction could be 3.7x.
 
 The WebNN API is being standardized by W3C Web Machine Learning [Working Group](https://www.w3.org/groups/wg/webmachinelearning) (WebML WG) after two years incubation within W3C Web Machine Learning [Community Group](https://www.w3.org/groups/cg/webmachinelearning). In June 2021, W3C WebML WG published WebNN [First Public Working Draft](https://www.w3.org/2020/Process-20200915/#fpwd) and plans to release the [Candidate Recommendation](https://www.w3.org/2020/Process-20200915/#RecsCR) in Q2 2022. WebNN may be implemented in Web browsers by using the available native operating system machine learning APIs, such as Android/ChromeOS [Neural Networks API](https://developer.android.com/ndk/guides/neuralnetworks), Windows [DirectML API](https://docs.microsoft.com/en-us/windows/ai/directml/dml-intro) and macOS/iOS [ML Compute API](https://developer.apple.com/documentation/mlcompute/). This architecture allows JavaScript ML frameworks to tap into cutting-edge machine learning innovations in the operating system and the hardware platform underneath it without being tied to platform-specific capabilities, bridging the gap between software and hardware through a hardware-agnostic abstraction layer.
 
@@ -28,7 +28,7 @@ As a related work, [OpenCV.js](https://docs.opencv.org/3.4/d5/d10/tutorial_js_ro
 A headline might be: "Accelerating the TensorFlow Lite WebAssembly runtime with WebNN API". 
 
 1. Users will be able to enable hardware acceleration of TensorFlow Lite WebAssembly runtime by leveraging on-device accelerators, such as the GPU and DSP, across operating systems and devices. That will bring close-to-native performance and power reduction.
-2. Users will be able to run 8-bit quantized model by TensorFlow Lite WebAssembly runtime with specialized hardware features, such as CPU/VNNI instruction and Edge TPU.
+2. Users will be able to run 8-bit quantized model by TensorFlow Lite WebAssembly runtime with specialized hardware features, such as CPU VNNI instruction and Edge TPU.
 3. Other contributors will be able to maintain one WebNN delegate implementation for various type of accelerators for TensorLow Lite WebAssembly runtime.
 
 ## Design Proposal
@@ -41,26 +41,24 @@ your chosen approach is superior.
 
 Make sure you’ve thought through and addressed the following sections. If a section is not relevant to your specific proposal, please explain why, e.g. your RFC addresses a convention or process, not an API.
 
+We propose:
+
+1. 
+
 
 ### Alternatives Considered
-* Make sure to discuss the relative merits of alternatives to your proposal.
 
-One alternative solution would be implementing a WebGL/WebGPU delegate. TensorFlow.js already uses WebGL and are working on a WebGPU backend. We believe this alternative is insufficient for two reasons. First, although graphics abstraction layers provide the flexibility of general programmability of the GPU graphics pipelines, they are unable to tap into hardware-specific optimizations and special instructions that are available to the operating system internals. The hardware ecosystem has been investing significantly in innovating in the ML space, and much of that is about improving the performance of intensive compute workloads in machine learning scenarios. Some key technologies that are important to model performance may not be uniformly accessible to applications through generic graphics pipeline states. Secondly, there are accelerators, such as DPS and Edge TPU, that are not exposed through WebGL and WebGPU API. A WebGL/WebGPU delegate would not be able to enable the hardware accelerations on those accelerators.
+To access GPU, one alternative solution would be implementing a WebGL/WebGPU delegate. TensorFlow.js already uses WebGL and are working on a WebGPU backend. We believe this alternative is insufficient for two reasons. First, although graphics abstraction layers provide the flexibility of general programmability of the GPU graphics pipelines, they are unable to tap into hardware-specific optimizations and special instructions that are available to the operating system internals. The hardware ecosystem has been investing significantly in innovating in the ML space, and much of that is about improving the performance of intensive compute workloads in machine learning scenarios. Some key technologies that are important to model performance may not be uniformly accessible to applications through generic graphics pipeline states. Secondly, there are other accelerators, such as DPS and Edge TPU, that are not exposed through WebGL and WebGPU API. A WebGL/WebGPU delegate would not be able to enable the hardware accelerations on those accelerators.
 
 Actually, the WebNN delegate is also able to run on top of [WebNN-polyfill](https://github.com/webmachinelearning/webnn-polyfill), a JavaScript implementation of WebNN API based on TensorFlow.js kernels. Through this path, TensorFlow Lite WebAssembly runtime could leverage the WebGL/WebGPU implementation of TensorFlow.js ops instead of implementing a WebGL/WebGPU delegate.
 
 ### Performance Implications
-* Do you expect any (speed / memory)? How will you confirm?
-* There should be microbenchmarks. Are there?
-* There should be end-to-end tests and benchmarks. If there are not (since this is still a design), how will you track that these will be created?
 
 There will be no performance implications for users of TensorFlow Lite WebAssembly runtime if they won't enable WebNN delegate, because the model will still be executed by XNNPACK delegate and built-in operation kernels. If users enable WebNN delegate, TensorFlow Lite runtime would partition the graph based on the operations supported by WebNN delegate. Each partition that is handled by WebNN delegate will be replaced by a WebNN delegate node in the original graph that evaluates the partition on its invoke call. Depending on the model, the final graph can end up with one or more nodes, the latter meaning that some ops are not supported by WebNN delegate. If the whole model could be handled by WebNN delegate, the performance characteristics would depend on the native operating system API and the type of hardware device that are used by the WebNN implementation of the Web browsers or JavaScript runtime. If there are multiple nodes in the final graph, there is an overhead for passing the results from the delegated subgraph to the main graph that results due to memory copies (for example, GPU to CPU) and layout conversions (e.g. plain layout to blocked layout). Such overhead might offset performance gains especially when there are a large amount of memory copies. WebNN API allows to specify the [device preference](https://www.w3.org/TR/webnn/#enumdef-mldevicepreference) when creating the `MLContext` for neural network graph compilation and compute. Users could keep using the same device (e.g. CPU) of WebNN delegate with other executors (e.g. XNNPACK delegate) that avoids unnecessary memory copies across devices.
 
 The implementation of WebNN delegate will follow the [TensorFlow Lite delegate development guide](https://www.tensorflow.org/lite/performance/implementing_delegate). So the TensorFlow Lite [Model Benchmark Tool](https://github.com/tensorflow/tensorflow/tree/f9ef3a8a0b64ad6393785f3259e9a24af09c84ad/tensorflow/lite/tools/benchmark), [Inference Diff tool](https://github.com/tensorflow/tensorflow/tree/f9ef3a8a0b64ad6393785f3259e9a24af09c84ad/tensorflow/lite/tools/evaluation/tasks/inference_diff) and [task specific evaluation tools](https://www.tensorflow.org/lite/performance/delegates#task-based_evaluation) could be used to test and benchmark. The [TensorFlow.js Model Benchmark](https://github.com/tensorflow/tfjs/tree/master/e2e/benchmarks/local-benchmark) could be used to benchmark WebNN delegate once it supports TensorFlow Lite WebAssembly runtime.
 
 ### Dependencies
-* Dependencies: does this proposal add any new dependencies to TensorFlow?
-* Dependent projects: are there other areas of TensorFlow or things that use TensorFlow (TFX/pipelines, TensorBoard, etc.) that this affects? How have you identified these dependencies and are you sure they are complete? If there are dependencies, how are you managing those changes?
 
 The TensorFlow Lite WebNN delegate takes a dependency on the WebNN API and implementations. The WebNN API is being standardized by W3C Web Machine Learning Working Group. The WebNN API implementations include:
 * [WebNN-polyfill](https://github.com/webmachinelearning/webnn-polyfill): a JavaScript implementation based on TensorFlow.js kernels. It could run where TensorFlow.js could run and depends on JavaScript, WebAssembly, WebGL and WebGPU that TensorFlow.js uses. This project is maintained by W3C Web Machine Learning Community Group.
@@ -70,16 +68,12 @@ The TensorFlow Lite WebNN delegate takes a dependency on the WebNN API and imple
 * WebNN implementation in Web browsers, such as Chrome browser of ChromeOS. The implementation would be maintained by individual browser vendor.
 
 ### Engineering Impact
-* Do you expect changes to binary size / startup time / build time / test times?
-* Who will maintain this code? Is this code in its own buildable unit? Can this code be tested in its own? Is visibility suitably restricted to only a small API surface for others to use?
 
 The WebNN delegate build will be produced with a newly added Bazel BUILD rule (e.g. cc_library with name `webnn_delegate`). The build will compile WebNN delegate sources (e.g. `webnn_delegate.h` and `webnn_delegate.cc`). According to the current implementation of 10 ops, the compilation time is about a few seconds. And the size of WebAssembly binary is increased by about 20KB. With more ops are implemented, the binary size is expected to be increased by another dozen of KB.
 
-Proposal: The code would be maintained by TensorFlow.js Special Interest Group (SIG).
+As a proposal, the code would be maintained by TensorFlow.js Special Interest Group (SIG).
 
 ### Platforms and Environments
-* Platforms: does this work on all platforms supported by TensorFlow? If not, why is that ok? Will it work on embedded/mobile? Does it impact automatic code generation or mobile stripping tooling? Will it work with transformation tools?
-* Execution environments (Cloud services, accelerator hardware): what impact do you expect and how will you confirm?
 
 The WebNN delegate works on all platforms supported by TensorFlow Lite WebAssembly runtime that include:
 * Web browsers without WebNN API implemented: it is supported by WebNN-polyfill
@@ -87,16 +81,10 @@ The WebNN delegate works on all platforms supported by TensorFlow Lite WebAssemb
 * Node.js/Electron.js: it is supported by the WebNN-native binding for Node.js
 
 ### Best Practices
-* Does this proposal change best practices for some aspect of using/developing TensorFlow? How will these changes be communicated/enforced?
 
 This change will follow the [TensorFlow Lite delegate development guide](https://www.tensorflow.org/lite/performance/implementing_delegate) and won't change any best practices. 
 
 ### Tutorials and Examples
-* If design changes existing API or creates new ones, the design owner should create end-to-end examples (ideally, a tutorial) which reflects how new feature will be used. Some things to consider related to the tutorial:
-    - The minimum requirements for this are to consider how this would be used in a Keras-based workflow, as well as a non-Keras (low-level) workflow. If either isn’t applicable, explain why.
-    - It should show the usage of the new feature in an end to end example (from data reading to serving, if applicable). Many new features have unexpected effects in parts far away from the place of change that can be found by running through an end-to-end example. TFX [Examples](https://github.com/tensorflow/tfx/tree/master/tfx/examples) have historically been good in identifying such unexpected side-effects and are as such one recommended path for testing things end-to-end.
-    - This should be written as if it is documentation of the new feature, i.e., consumable by a user, not a TensorFlow developer. 
-    - The code does not need to work (since the feature is not implemented yet) but the expectation is that the code does work before the feature can be merged. 
 
 The C++ example that enables WebNN delegate.
 ```c++
@@ -191,18 +179,10 @@ const modelRunner = modelRunnerResult.value();
 ```
 
 ### Compatibility
-* Does the design conform to the backwards & forwards compatibility [requirements](https://www.tensorflow.org/programmers_guide/version_compat)?
-* How will this proposal interact with other parts of the TensorFlow Ecosystem?
-    - How will it work with TFLite?
-    - How will it work with distribution strategies?
-    - How will it interact with tf.function?
-    - Will this work on GPU/TPU?
-    - How will it serialize to a SavedModel?
 
 The change in this proposal concerns the low-level constructs inside the TensorFlow Lite WebAssembly runtime with minimal to no impact to the high-level exposures and API. The existing models supported by TensorFlow Lite WebAssembly runtime will be supported with WebNN delegate enabled.
 
 ### User Impact
-* What are the user-facing changes? How will this feature be rolled out?
 
 This feature will be rolled out with the tfjs-tflite. There are two ways:
 
@@ -219,13 +199,55 @@ Via a script tag
 
 ## Detailed Design
 
-This section is optional. Elaborate on details if they’re important to
-understanding the design, but would make it hard to read the proposal section
-above.
+The following code illustrates how a kernel of TensorFlow Lite `kTfLiteBuiltinAdd` may be implemented with WebNN API:
+
+```c++
+  static TfLiteStatus VisitAddNode(
+      const ml::GraphBuilder& builder, TfLiteContext* logging_context, int node_index,
+      TfLiteNode* node, const TfLiteTensor* tensors,
+      const TfLiteAddParams* add_params,
+      std::vector<ml::Operand>& webnn_operands,
+      std::vector<std::unique_ptr<char>>& constant_buffers) {
+    TF_LITE_ENSURE_STATUS(
+        CheckNumInputsAndOutputs(logging_context, node, 2, 1, node_index));
+
+    const int input1_tensor_id = node->inputs->data[0];
+    const TfLiteTensor& input1_tensor = tensors[input1_tensor_id];
+    TF_LITE_ENSURE_STATUS(CheckTensorFloat32OrQInt8Type(
+        logging_context, input1_tensor, input1_tensor_id, node_index));
+    TF_LITE_ENSURE_STATUS(CheckTensorNonDynamicAllocation(
+        logging_context, input1_tensor, input1_tensor_id, node_index));
+
+    const int input2_tensor_id = node->inputs->data[1];
+    const TfLiteTensor& input2_tensor = tensors[input2_tensor_id];
+    TF_LITE_ENSURE_STATUS(CheckTensorFloat32OrQInt8Type(
+        logging_context, input2_tensor, input2_tensor_id, node_index));
+    TF_LITE_ENSURE_STATUS(CheckTensorNonDynamicAllocation(
+        logging_context, input2_tensor, input2_tensor_id, node_index));
+
+    const int output_tensor_id = node->outputs->data[0];
+    const TfLiteTensor& output_tensor = tensors[output_tensor_id];
+    TF_LITE_ENSURE_STATUS(CheckTensorFloat32OrQInt8Type(
+        logging_context, output_tensor, output_tensor_id, node_index));
+    TF_LITE_ENSURE_STATUS(CheckTensorNonDynamicAllocation(
+        logging_context, output_tensor, output_tensor_id, node_index));
+
+    if (builder) {
+      webnn_operands[output_tensor_id] =
+          builder.Add(webnn_operands[input1_tensor_id], webnn_operands[input2_tensor_id]);
+    }
+
+    if (add_params != nullptr) {
+      TF_LITE_ENSURE_STATUS(VisitActivation(
+          builder, logging_context, node_index, output_tensor_id, output_tensor_id,
+          add_params->activation, webnn_operands, constant_buffers));
+    }
+
+    return kTfLiteOk;
+  }
+```
 
 ## Questions and Discussion Topics
-
-Seed this with open questions you require feedback on from the RFC process.
 
 * What's the path to support GPU buffers by TensorFlow Lite WebAssembly runtime? The use case is to interact with WebGL/WebGPU based pre and post-processing code. WebNN API supports taking WebGL and WebGPU textures/buffers as inputs and outputs.
 * What's the path to integrate this change into MediaPipe Web solution.
