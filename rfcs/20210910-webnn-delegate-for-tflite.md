@@ -33,15 +33,7 @@ A headline might be: "Accelerating the TensorFlow Lite WebAssembly runtime with 
 
 ## Design Proposal
 
-This is the meat of the document, where you explain your proposal. If you have
-multiple alternatives, be sure to use sub-sections for better separation of the
-idea, and list pros/cons to each approach. If there are alternatives that you
-have eliminated, you should also list those here, and explain why you believe
-your chosen approach is superior.
-
-Make sure you’ve thought through and addressed the following sections. If a section is not relevant to your specific proposal, please explain why, e.g. your RFC addresses a convention or process, not an API.
-
-The folder with path `tensorflow/lite/delegates/webnn` contains the WebNN delegate's implementation. The major part of the implementation is in `webnn_delegate.cc` and the interfaces are declared in `webnn_delegate.h`.
+The major part of the implementation is in `webnn_delegate.cc` and the interfaces are declared in `webnn_delegate.h`. The two files are placed in the folder with path `tensorflow/lite/delegates/webnn`. 
 
 ### Interfaces
 
@@ -72,7 +64,7 @@ typedef struct {
 TfLiteWebNNDelegateOptions TfLiteWebNNDelegateOptionsDefault();
 ```
 
-`TfLiteWebNNDelegateCreate()` is the main entry point to create a new instance of WebNN delegate. It takes `TfLiteWebNNDelegateOptions` and returns a pointer to  `TfLiteDelegate` that is defined in [`tensorflow/lite/c/common.h`](https://github.com/tensorflow/tensorflow/blob/master/tensorflow/lite/c/common.h). `TfLiteDelegate` is a structure that is the main interface TensorFlow Lite runtime interacts with WebNN delegate implementation. When `options` is set to `nullptr`, the above default values are used.
+`TfLiteWebNNDelegateCreate()` is the main entry point to create a new instance of WebNN delegate. It takes `TfLiteWebNNDelegateOptions` and returns a pointer to  `TfLiteDelegate` that is defined in [`tensorflow/lite/c/common.h`](https://github.com/tensorflow/tensorflow/blob/master/tensorflow/lite/c/common.h). `TfLiteDelegate` is a structure that is the main interface that TensorFlow Lite runtime interacts with WebNN delegate implementation. When `options` is set to `nullptr`, the above default values are used.
 ```c++
 TfLiteDelegate* TfLiteWebNNDelegateCreate(const TfLiteWebNNDelegateOptions* options);
 ```
@@ -84,7 +76,9 @@ void TfLiteWebNNDelegateDelete(TfLiteDelegate* delegate);
 
 ### Implementation
 
-`webnn_delegate.cc` implements `TfLiteDelegate` and `TfLiteRegistration` defined in [`tensorflow/lite/c/common.h`](https://github.com/tensorflow/tensorflow/blob/master/tensorflow/lite/c/common.h) with `Delegate` and `Subgraph` classes. The implementations are in namespace `tflite::webnn::`.
+`webnn_delegate.cc` implements `TfLiteDelegate` and `TfLiteRegistration` defined in [`tensorflow/lite/c/common.h`](https://github.com/tensorflow/tensorflow/blob/master/tensorflow/lite/c/common.h) with `Delegate` and `Subgraph` classes. The implementations are in namespace `delegate::webnn::`.
+
+#### `Delegate` class
 
 `Delegate` class implements the `TfLiteDelegate`. The following sample code list major methods and members that may be implemented for this class.
 
@@ -115,11 +109,11 @@ class Delegate {
 
 The constructor of `Delegate` translates the `TfLiteWebNNDelegateOptions` to `MLContextOptions`.
 
-The `delegate_` is the implementation of `TfLiteDelegate`.
+The `delegate_` is an instance of `TfLiteDelegate`. It bridges `TfLiteDelegate` structure to `Delegate` class.
 
 The `TfLiteDelegate::data_` is used to identify `Delegate` itself. 
 
-The `TfLiteDelegate::Prepare` function pointer is implemented by `DelegatePrepare()`. It is invoked by `ModifyGraphWithDelegate()`. This prepare is called, giving the delegate a view of the current graph through `TfLiteContext`. It looks at the nodes by `Delegate::PrepareOpsToDelegate()` and call `ReplaceNodeSubsetsWithDelegateKernels()` to ask the TensorFlow Lite runtime to create macro-nodes to represent delegated subgraphs (implemented by `Subgraph`) of the original graph.
+The `TfLiteDelegate::Prepare` function pointer is set to `DelegatePrepare()`. This function is invoked by `ModifyGraphWithDelegate()`. This prepare is called, giving the delegate a view of the current graph through `TfLiteContext`. It looks at the nodes by `Delegate::PrepareOpsToDelegate()` and call `ReplaceNodeSubsetsWithDelegateKernels()` to ask the TensorFlow Lite runtime to create macro-nodes to represent delegated subgraphs (implemented by `Subgraph`) of the original graph.
 
 ```c++
 TfLiteStatus DelegatePrepare(TfLiteContext* context, TfLiteDelegate* delegate) {
@@ -137,7 +131,21 @@ TfLiteStatus DelegatePrepare(TfLiteContext* context, TfLiteDelegate* delegate) {
 }
 ```
 
-`kSubgraphRegistration` is an instance of `TfLiteRegistration`. It bridges `TfLiteRegistration` to `Subgraph` class.
+`Delegate::PrepareOpsToDelegate()` takes a `TfLiteContext` and returns a list of nodes in `TfLiteIntArray` that can be delegated by WebNN delegate. It basically implements the following steps:
+ 1. Create `nodes_to_delegate` as an instance of `TfLiteIntArray` with length of 0.
+ 1. Get the execution plan from the context by `TfLiteContext::GetExecutionPlan`.
+ 1. Iterate each node of the execution plan and get node info of `TfLiteNode` and registration of `TfLiteRegistration`. For each node, execute following steps:
+    1. Call `Subgraph::VisitNode` with the node info and its registration. For each type of the node (`builtin_code`), it checks the data type, shape and attributes are supported by WebNN or not. Please see details of `Subgraph::VisitNode` in following section.
+    1. If the node is supported by WebNN, append it into the `nodes_to_delegate` and continue the iteration.
+ 1. When all nodes are iterated, return the `nodes_to_delegates`.
+
+Since WebNN delegate doesn't allocate its own buffers, `TfLiteDelegate::CopyFromBufferHandle`, `TfLiteDelegate::CopyToBufferHandle` and `TfLiteDelegate::FreeBufferHandle` are all set to `nullptr`.
+
+`TfLiteDelegate::flags` is set to `kTfLiteDelegateFlagsNone` for basic functionality. WebNN delegate may support other flags, such as for dynamic sized tensors. 
+
+#### `Subgraph` class
+
+`kSubgraphRegistration` is an instance of `TfLiteRegistration`. It bridges `TfLiteRegistration` structure to `Subgraph` class.
 
 ```c++
 const TfLiteRegistration kSubgraphRegistration = {
@@ -154,7 +162,7 @@ const TfLiteRegistration kSubgraphRegistration = {
 
 Respectively, `SubgraphInit` calls `Subgraph::Create()`, `SubgraphFree` deletes `Subgraph` instance, `SubgraphPrepare` calls `Subgraph::Prepare()` and `SubgraphInvoke` calls `Subgraph::Invoke()`.
 
-`Subgraph` implements `TfLiteRegistration` by WebNN API (e.g. `ml::Graph`). The following sample code list major methods and members that may be implemented for this class.
+`Subgraph` implements `TfLiteRegistration` by WebNN interfaces, such as [`MLGraph`](https://www.w3.org/TR/webnn/#api-mlgraph). The following sample code list major methods and members that may be implemented for this class.
 
 ```c++
 class Subgraph {
@@ -179,20 +187,75 @@ class Subgraph {
   std::unordered_map<int, ml::ArrayBufferView> ml_outputs_;
 ```
 
-`Create()` takes `TfLiteContext`, `TfLiteDelegateParams`, `Delegate` and returns `Subgraph*` points to the new instance of `Subgraph`. The returned pointer will be stored with the node in the `user_data` field, accessible within prepare and invoke functions. 
+`Create()` takes `TfLiteContext`, `TfLiteDelegateParams`, `Delegate` and returns a `Subgraph` pointer points to the new instance of `Subgraph`. The returned pointer will be stored with the node in the `user_data` field, accessible within prepare and invoke functions. It basically executes the following steps:
+ 1. Create WebNN context of [`MLContext`](https://www.w3.org/TR/webnn/#api-mlcontext) and graph builder of [`MLGraphBuilder`](https://www.w3.org/TR/webnn/#api-mlgraphbuilder).
+ 1. Create a vector of WebNN operands `webnn_operands` of type [`MLOperand`](https://www.w3.org/TR/webnn/#api-mloperand) indexed by TFLite tensor ID.
+ 1. Get the input tensors by accessing `TfLiteDelegateParams::input_tensors`. For each input tensor, execute the following steps:
+    1. Check whether the data is allocated for this input tensor.
+    1. If the data is allocated, create a WebNN constant operand by [`builder.constant`](https://www.w3.org/TR/webnn/#dom-mlgraphbuilder-constant) according to its data type and shape. Insert this operand into `webnn_operands` indexed by TFLite tensor ID.
+    1. Otherwise, create a WebNN input operand by [`builder.input`](https://www.w3.org/TR/webnn/#dom-mlgraphbuilder-input) with the name of the tensor ID and [`MLOperandDescriptor`](https://www.w3.org/TR/webnn/#api-mloperanddescriptor) according to its data type and shape. Insert this operand into `webnn_operands` indexed by TFLite tensor ID.
+ 1. Get the nodes to be replaced by accessing `TfLiteDelegateParams::nodes_to_replace`. For each node, execute the following steps:
+    1. Retrieve its node info of `TfLiteNode` and registration of `TfLiteRegistration`.
+    1. Call `Subgraph::VisitNode` with the TFLite context, node info and registration together with WebNN builder and operands. It builds the actual WebNN operation according to the TFLite node. It puts the WebNN output operand of that operation into `webnn_operands`. Please see details of `Subgraph::VisitNode` in following section.
+ 1. Get the TFLite output tensors by accessing `TfLiteDelegateParams::output_tensors`. Build [`MLNamedOperands`](https://www.w3.org/TR/webnn/#typedefdef-mlnamedoperands) by iterating the TFLite output tensors and executing following steps for each output tensor:
+    1. Find the WebNN operand in `webnn_operands` by the output tensor ID.
+    1. Insert the WebNN operand into `MLNamedOperands` and associate it with the output tensor ID as the name.
+ 1. Build WebNN [`MLGraph`](https://www.w3.org/TR/webnn/#api-mlgraph) by calling [`builder.build`](https://www.w3.org/TR/webnn/#dom-mlgraphbuilder-build) with the `MLNamedOperands`.
 
-It basically implement the following steps:
- 1. Create WebNN context and graph builder.
- 2. Create WebNN input operands for TFLite input tensors and WebNN constant operands for TFLite constant tensors of this subgraph.
- 3. Create WebNN operations for TFLite nodes of this subgraph.
- 4. Build WebNN graph based on TFLite output tensors and save it to `ml_graph_`.
+ As the WebNN `MLGraph` is built by `Create()`, `Prepare()` is implemented as a null operation.
 
-`Invoke()` executes the delegated subgraph with inputs and outputs of the `TfLiteContext`. It basically implement the following steps:
- 1. Create `ml::NamedInputs` and bind TFLite input tensors' buffer. The inputs are indexed by tensor ID (`int`).
- 2. Create `ml::NamedOutputs` and bind TFLite output tensors' buffer. The outputs are indexed by tensor ID (`int`).
- 3. Call `ml_graph_.Compute()` with inputs and outputs. After this call completes, the results are placed into the TFLite output tensors' buffer.
+`Invoke()` computes the delegated subgraph of `MLGraph` with inputs and outputs of the `TfLiteContext`. It basically executes the following steps:
+ 1. Create [`MLNamedInputs`](https://www.w3.org/TR/webnn/#typedefdef-mlnamedinputs) and bind TFLite input tensors' buffer. The inputs are indexed by tensor ID (`int`).
+ 2. Create [`MLNamedOutputs`](https://www.w3.org/TR/webnn/#typedefdef-mlnamedoutputs) and bind TFLite output tensors' buffer. The outputs are indexed by tensor ID (`int`).
+ 3. Call [`MLGraph.compute()`](https://www.w3.org/TR/webnn/#dom-mlgraph-compute) with inputs and outputs. After this call completes, the results are placed into the TFLite output tensors' buffer.
 
-`VisitNode`
+`VisitNode()` builds a WebNN operation with `ml::GraphBuilder` based on TFLite node represented by `TfLiteRegistration` and `TfLiteNode` indexed by `node_index`. It basically executes the following steps:
+ 1. Check the TFLite node's `TfLiteRegistration::builtin_code`.
+ 2. Based on the `builtin_code`, such as `kTfLiteBuiltinAdd`, call corresponding WebNN operation building method, such as `VisitAddNode`.
+
+The following code illustrates the kernel of TensorFlow Lite `kTfLiteBuiltinAdd` may be implemented with WebNN API:
+
+```c++
+static TfLiteStatus VisitAddNode(
+    const ml::GraphBuilder& builder, TfLiteContext* logging_context, int node_index,
+    TfLiteNode* node, const TfLiteTensor* tensors,
+    const TfLiteAddParams* add_params,
+    std::vector<ml::Operand>& webnn_operands,
+    std::vector<std::unique_ptr<char>>& constant_buffers) {
+  TF_LITE_ENSURE_STATUS(
+      CheckNumInputsAndOutputs(logging_context, node, 2, 1, node_index));
+
+  const int input1_tensor_id = node->inputs->data[0];
+  const TfLiteTensor& input1_tensor = tensors[input1_tensor_id];
+  TF_LITE_ENSURE_STATUS(CheckTensorFloat32Type(
+      logging_context, input1_tensor, input1_tensor_id, node_index));
+
+  const int input2_tensor_id = node->inputs->data[1];
+  const TfLiteTensor& input2_tensor = tensors[input2_tensor_id];
+  TF_LITE_ENSURE_STATUS(CheckTensorFloat32(
+      logging_context, input2_tensor, input2_tensor_id, node_index));
+
+  const int output_tensor_id = node->outputs->data[0];
+  const TfLiteTensor& output_tensor = tensors[output_tensor_id];
+  TF_LITE_ENSURE_STATUS(CheckTensorFloat32(
+      logging_context, output_tensor, output_tensor_id, node_index));
+
+  if (builder) {
+    webnn_operands[output_tensor_id] =
+        builder.Add(webnn_operands[input1_tensor_id], webnn_operands[input2_tensor_id]);
+  }
+
+  if (add_params != nullptr) {
+    TF_LITE_ENSURE_STATUS(VisitActivation(
+        builder, logging_context, node_index, output_tensor_id, output_tensor_id,
+        add_params->activation, webnn_operands, constant_buffers));
+  }
+
+  return kTfLiteOk;
+}
+```
+
+`VisitNode` is called by both `Delegate::PrepareOpsToDelegate` and `Subgraph::Create` for two different usages. When called by `Delegate::PrepareOpsToDelegate`, the `builder` will be an invalid `ml::GraphBuilder`. It leads `if (builder)` to be false. At that stage, it only checks whether this TFLite node is supported by WebNN or not. When called by `Subgraph::Create`, the `builder` will be a valid `ml::GraphBuilder`. It makes `if (builder)` to be true. At this stage, it builds the actual WebNN operation based on the TFLite node.
 
 ### Alternatives Considered
 
@@ -343,56 +406,6 @@ import * as tflite from '@tensorflow/tfjs-tflite';
 Via a script tag
 ```js
 <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-tflite/dist/tf-tflite.min.js"></script>
-```
-
-## Detailed Design
-
-The following code illustrates how a kernel of TensorFlow Lite `kTfLiteBuiltinAdd` may be implemented with WebNN API:
-
-```c++
-  static TfLiteStatus VisitAddNode(
-      const ml::GraphBuilder& builder, TfLiteContext* logging_context, int node_index,
-      TfLiteNode* node, const TfLiteTensor* tensors,
-      const TfLiteAddParams* add_params,
-      std::vector<ml::Operand>& webnn_operands,
-      std::vector<std::unique_ptr<char>>& constant_buffers) {
-    TF_LITE_ENSURE_STATUS(
-        CheckNumInputsAndOutputs(logging_context, node, 2, 1, node_index));
-
-    const int input1_tensor_id = node->inputs->data[0];
-    const TfLiteTensor& input1_tensor = tensors[input1_tensor_id];
-    TF_LITE_ENSURE_STATUS(CheckTensorFloat32OrQInt8Type(
-        logging_context, input1_tensor, input1_tensor_id, node_index));
-    TF_LITE_ENSURE_STATUS(CheckTensorNonDynamicAllocation(
-        logging_context, input1_tensor, input1_tensor_id, node_index));
-
-    const int input2_tensor_id = node->inputs->data[1];
-    const TfLiteTensor& input2_tensor = tensors[input2_tensor_id];
-    TF_LITE_ENSURE_STATUS(CheckTensorFloat32OrQInt8Type(
-        logging_context, input2_tensor, input2_tensor_id, node_index));
-    TF_LITE_ENSURE_STATUS(CheckTensorNonDynamicAllocation(
-        logging_context, input2_tensor, input2_tensor_id, node_index));
-
-    const int output_tensor_id = node->outputs->data[0];
-    const TfLiteTensor& output_tensor = tensors[output_tensor_id];
-    TF_LITE_ENSURE_STATUS(CheckTensorFloat32OrQInt8Type(
-        logging_context, output_tensor, output_tensor_id, node_index));
-    TF_LITE_ENSURE_STATUS(CheckTensorNonDynamicAllocation(
-        logging_context, output_tensor, output_tensor_id, node_index));
-
-    if (builder) {
-      webnn_operands[output_tensor_id] =
-          builder.Add(webnn_operands[input1_tensor_id], webnn_operands[input2_tensor_id]);
-    }
-
-    if (add_params != nullptr) {
-      TF_LITE_ENSURE_STATUS(VisitActivation(
-          builder, logging_context, node_index, output_tensor_id, output_tensor_id,
-          add_params->activation, webnn_operands, constant_buffers));
-    }
-
-    return kTfLiteOk;
-  }
 ```
 
 ## Questions and Discussion Topics
