@@ -5,7 +5,7 @@
 | **RFC #**     | [NNN](https://github.com/tensorflow/community/pull/NNN) (update when you have community PR #)|
 | **Author(s)** | Ningxin Hu (ningxin.hu@intel.com)                    |
 | **Sponsor**   | Ping Yu (piyu@google.com)                            |
-| **Updated**   | 2021-09-10                                           |
+| **Updated**   | 2021-09-26                                           |
 
 ## Objective
 
@@ -33,7 +33,18 @@ A headline might be: "Accelerating the TensorFlow Lite WebAssembly runtime with 
 
 ## Design Proposal
 
-The major part of the implementation is in `webnn_delegate.cc` and the interfaces are declared in `webnn_delegate.h`. The two files are placed in the folder with path `tensorflow/lite/delegates/webnn`. 
+### Overview
+
+We propose:
+ 1. A `WebnnDelegate` class that inherits [`TfLiteDelegate`](https://github.com/tensorflow/tensorflow/blob/master/tensorflow/lite/c/common.h#L919). This class represents the capabilities of the WebNN delegate and maintains the WebNN context based on the options (e.g. device type). It checks which operations are supported for a subgraph to be delegated and works as a factory class for creating a kernel (represented by `WebnnSubgraph`) which encapsulates the delegated graph.
+ 1. A `WebnnSubgraph` class that implements [`TfLiteRegistration`](https://github.com/tensorflow/tensorflow/blob/master/tensorflow/lite/c/common.h#L824). This class encapsulates the logic for building and invoking WebNN graph for the delegated graph.
+ 1. A `WebnnDelegateProvider` class that inherits [`DelegateProvider`](https://github.com/tensorflow/tensorflow/blob/master/tensorflow/lite/tools/delegates/delegate_provider.h). This class works with TFLite delegate registrar and creates WebNN delegate based on command-line flags for TFLite tests and tooling reusing.
+
+The overall class diagram of this RFC is shown in Diagram 1.
+
+<div align="center">
+<img src="20210926-webnn-delegate-for-tflite/class_diagram.png">
+</div>
 
 ### Interfaces
 
