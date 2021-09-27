@@ -36,9 +36,9 @@ A headline might be: "Accelerating the TensorFlow Lite WebAssembly runtime with 
 ### Overview
 
 We propose:
- 1. A `WebnnDelegate` class that implements [`SimpleDelegateInterface`](https://github.com/tensorflow/tensorflow/blob/master/tensorflow/lite/delegates/utils/simple_delegate.h). This class represents the capabilities of the WebNN delegate and maintains the WebNN context based on the options (e.g. device preference). It checks which operations are supported for a subgraph to be delegated and works as a factory class for creating a kernel (represented by `WebnnDelegateKernel`) which encapsulates the delegated graph.
+ 1. A `WebnnDelegate` class that implements [`SimpleDelegateInterface`](https://github.com/tensorflow/tensorflow/blob/master/tensorflow/lite/delegates/utils/simple_delegate.h). This class represents the capabilities of the WebNN delegate, checks which operations are supported for the graph to be delegated and works as a factory class for creating a kernel (represented by `WebnnDelegateKernel`) that encapsulates the delegated graph.
  1. A `WebnnDelegateKernel` class that implements [`SimpleDelegateKernelInterface`](https://github.com/tensorflow/tensorflow/blob/master/tensorflow/lite/delegates/utils/simple_delegate.h). This class encapsulates the logic for building and invoking WebNN graph for the delegated graph.
- 1. A `WebnnDelegateProvider` class that implements [`DelegateProvider`](https://github.com/tensorflow/tensorflow/blob/master/tensorflow/lite/tools/delegates/delegate_provider.h). This class works with TFLite delegate registrar and creates WebNN delegate instance based on the command-line flags for TFLite tests and tooling reusing.
+ 1. A `WebnnDelegateProvider` class that implements [`DelegateProvider`](https://github.com/tensorflow/tensorflow/blob/master/tensorflow/lite/tools/delegates/delegate_provider.h). This class works with TFLite delegate registrar and creates WebNN delegate instance based on the command-line flags for reusing TFLite tests and tooling.
 
 The class diagram of the design proposal is shown in Diagram 1.
 
@@ -48,7 +48,7 @@ The class diagram of the design proposal is shown in Diagram 1.
 
 ### The extern "C" APIs for creating and deleting the WebNN delegate
 
-The `webnn_delegate.h` exposes `TfLiteWebnnDelegateOptions`, `TfLiteWebnnDelegateCreate` and `TfLiteWebnnDelegateDelete` extern "C" APIs for creating and deleting the WebNN delegate.
+`TfLiteWebnnDelegateOptionsDefault()`, `TfLiteWebnnDelegateCreate()` and `TfLiteWebnnDelegateDelete()` are extern "C" APIs for creating and deleting the WebNN delegate. They are defined in `webnn_delegate.h` header file.
 
 `TfLiteWebnnDelegateOptions` is a structure that is used to supply options when creating a WebNN delegate. The options map to [`MLContextOptions`](https://www.w3.org/TR/webnn/#dictdef-mlcontextoptions) for device and power preferences.
 
@@ -83,8 +83,8 @@ TfLiteDelegate* TfLiteWebnnDelegateCreate(const TfLiteWebnnDelegateOptions* opti
 
 `TfLiteWebnnDelegateCreate()` is the main entry point to create a new instance of WebNN delegate. It implements the following steps:
   1. Create a new instance of `WebnnDelegate` named _`webnn_delegate`_ with options of `TfLiteWebnnDelegateOptions`.
-  1. Call _`webnn_delegate->VerifyDelegate()`_ that checks WebNN API is available. If WebNN API is not available, return `nullptr`.
-  1. Call [`tflite::TfLiteDelegateFactory::CreateSimpleDelegate()`](https://github.com/tensorflow/tensorflow/blob/master/tensorflow/lite/delegates/utils/simple_delegate.h#L113) with _`webnn_delegate`_ and returns the pointer to  `TfLiteDelegate` that is defined in [`tensorflow/lite/c/common.h`](https://github.com/tensorflow/tensorflow/blob/master/tensorflow/lite/c/common.h).
+  1. Call _`webnn_delegate->VerifyDelegate()`_ that checks whether WebNN API is available. If WebNN API is not available, return `nullptr`.
+  1. Call [`tflite::TfLiteDelegateFactory::CreateSimpleDelegate()`](https://github.com/tensorflow/tensorflow/blob/master/tensorflow/lite/delegates/utils/simple_delegate.h#L113) with _`webnn_delegate`_ and returns the pointer to  [`TfLiteDelegate`](https://github.com/tensorflow/tensorflow/blob/master/tensorflow/lite/c/common.h).
 
 
 
