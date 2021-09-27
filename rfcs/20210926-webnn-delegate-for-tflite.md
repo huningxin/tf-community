@@ -36,67 +36,71 @@ A headline might be: "Accelerating the TensorFlow Lite WebAssembly runtime with 
 ### Overview
 
 We propose:
- 1. A `WebnnDelegate` class that inherits [`TfLiteDelegate`](https://github.com/tensorflow/tensorflow/blob/master/tensorflow/lite/c/common.h#L919). This class represents the capabilities of the WebNN delegate and maintains the WebNN context based on the options (e.g. device type). It checks which operations are supported for a subgraph to be delegated and works as a factory class for creating a kernel (represented by `WebnnSubgraph`) which encapsulates the delegated graph.
- 1. A `WebnnSubgraph` class that implements [`TfLiteRegistration`](https://github.com/tensorflow/tensorflow/blob/master/tensorflow/lite/c/common.h#L824). This class encapsulates the logic for building and invoking WebNN graph for the delegated graph.
- 1. A `WebnnDelegateProvider` class that inherits [`DelegateProvider`](https://github.com/tensorflow/tensorflow/blob/master/tensorflow/lite/tools/delegates/delegate_provider.h). This class works with TFLite delegate registrar and creates WebNN delegate based on command-line flags for TFLite tests and tooling reusing.
+ 1. A `WebnnDelegate` class that implements [`SimpleDelegateInterface`](https://github.com/tensorflow/tensorflow/blob/master/tensorflow/lite/delegates/utils/simple_delegate.h). This class represents the capabilities of the WebNN delegate and maintains the WebNN context based on the options (e.g. device preference). It checks which operations are supported for a subgraph to be delegated and works as a factory class for creating a kernel (represented by `WebnnDelegateKernel`) which encapsulates the delegated graph.
+ 1. A `WebnnDelegateKernel` class that implements [`SimpleDelegateKernelInterface`](https://github.com/tensorflow/tensorflow/blob/master/tensorflow/lite/delegates/utils/simple_delegate.h). This class encapsulates the logic for building and invoking WebNN graph for the delegated graph.
+ 1. A `WebnnDelegateProvider` class that implements [`DelegateProvider`](https://github.com/tensorflow/tensorflow/blob/master/tensorflow/lite/tools/delegates/delegate_provider.h). This class works with TFLite delegate registrar and creates WebNN delegate instance based on the command-line flags for TFLite tests and tooling reusing.
 
-The overall class diagram of this RFC is shown in Diagram 1.
+The class diagram of the design proposal is shown in Diagram 1.
 
 <div align="center">
 <img src="20210926-webnn-delegate-for-tflite/class_diagram.png">
 </div>
 
-### Interfaces
+### The extern "C" APIs for creating and deleting the WebNN delegate
 
-The `webnn_delegate.h` exposes `TfLiteWebNNDelegateOptions`, `TfLiteWebNNDelegateCreate` and `TfLiteWebNNDelegateDelete` interfaces.
+The `webnn_delegate.h` exposes `TfLiteWebnnDelegateOptions`, `TfLiteWebnnDelegateCreate` and `TfLiteWebnnDelegateDelete` extern "C" APIs for creating and deleting the WebNN delegate.
 
-`TfLiteWebNNDelegateOptions` is a structure that is used to supply options when creating a WebNN delegate. The options map to [`MLContextOptions`](https://www.w3.org/TR/webnn/#dictdef-mlcontextoptions) for device and power preferences.
+`TfLiteWebnnDelegateOptions` is a structure that is used to supply options when creating a WebNN delegate. The options map to [`MLContextOptions`](https://www.w3.org/TR/webnn/#dictdef-mlcontextoptions) for device and power preferences.
 
 It may be implemented as:
 ```c++
 typedef struct {
+  // This corresponds to the DevicePreference enum defined in the WebNN API, default 0.
   // enum class DevicePreference : uint32_t {
   //     Default = 0x00000000,
   //     Gpu = 0x00000001,
   //     Cpu = 0x00000002,
   // };
   uint32_t devicePreference;
+  // This corresponds to the PowerPreference enum defined in the WebNN API, default 0.
   // enum class PowerPreference : uint32_t {
   //     Default = 0x00000000,
   //     High_performance = 0x00000001,
   //     Low_power = 0x00000002,
   // };
   uint32_t powerPreference;
-} TfLiteWebNNDelegateOptions;
+} TfLiteWebnnDelegateOptions;
 ```
 
-`TfLiteWebNNDelegateOptionsDefault()` is used to create a structure with the default WebNN delegate options.
+`TfLiteWebnnDelegateOptionsDefault()` is used to create a structure with the default WebNN delegate options.
 ```c++
-TfLiteWebNNDelegateOptions TfLiteWebNNDelegateOptionsDefault();
+TfLiteWebnnDelegateOptions TfLiteWebnnDelegateOptionsDefault();
 ```
 
-`TfLiteWebNNDelegateCreate()` is the main entry point to create a new instance of WebNN delegate. It takes `TfLiteWebNNDelegateOptions` and returns a pointer to  `TfLiteDelegate` that is defined in [`tensorflow/lite/c/common.h`](https://github.com/tensorflow/tensorflow/blob/master/tensorflow/lite/c/common.h). `TfLiteDelegate` is a structure that is the main interface that TensorFlow Lite runtime interacts with WebNN delegate implementation. When `options` is set to `nullptr`, the above default values are used.
 ```c++
-TfLiteDelegate* TfLiteWebNNDelegateCreate(const TfLiteWebNNDelegateOptions* options);
+TfLiteDelegate* TfLiteWebnnDelegateCreate(const TfLiteWebnnDelegateOptions* options);
 ```
 
-`TfLiteWebNNDelegateDelete()` destroys a delegate created with `TfLiteWebNNDelegateCreate()` call.
+`TfLiteWebnnDelegateCreate()` is the main entry point to create a new instance of WebNN delegate. It implements the following steps:
+  1. Create a new instance of `WebnnDelegate` named _`webnn_delegate`_ with options of `TfLiteWebnnDelegateOptions`.
+  1. Call _`webnn_delegate->VerifyDelegate()`_ that checks WebNN API is available. If WebNN API is not available, return `nullptr`.
+  1. Call [`tflite::TfLiteDelegateFactory::CreateSimpleDelegate()`](https://github.com/tensorflow/tensorflow/blob/master/tensorflow/lite/delegates/utils/simple_delegate.h#L113) with _`webnn_delegate`_ and returns the pointer to  `TfLiteDelegate` that is defined in [`tensorflow/lite/c/common.h`](https://github.com/tensorflow/tensorflow/blob/master/tensorflow/lite/c/common.h).
+
+
+
+`TfLiteWebnnDelegateDelete()` destroys a WebNN delegate created with `TfLiteWebnnDelegateCreate()` call.
 ```c++
-void TfLiteWebNNDelegateDelete(TfLiteDelegate* delegate);
+void TfLiteWebnnDelegateDelete(TfLiteDelegate* delegate);
 ```
 
-### Implementation
+#### `WebnnDelegate` class
 
-`webnn_delegate.cc` implements `TfLiteDelegate` and `TfLiteRegistration` defined in [`tensorflow/lite/c/common.h`](https://github.com/tensorflow/tensorflow/blob/master/tensorflow/lite/c/common.h) with `Delegate` and `Subgraph` classes. The implementations are in namespace `delegate::webnn::`.
-
-#### `Delegate` class
-
-`Delegate` class implements the `TfLiteDelegate`. The following sample code list major methods and members that may be implemented for this class.
+`WebnnDelegate` class implements the `TfLiteDelegate`. The following sample code list major methods and members that may be implemented for this class.
 
 ```c++
 class Delegate {
  public:
-  explicit Delegate(const TfLiteWebNNDelegateOptions* options);
+  explicit Delegate(const TfLiteWebnnDelegateOptions* options);
   TfLiteIntArray* PrepareOpsToDelegate(TfLiteContext* context);
 
   // Other methods
@@ -118,7 +122,7 @@ class Delegate {
 };
 ```
 
-The constructor of `Delegate` translates the `TfLiteWebNNDelegateOptions` to `MLContextOptions`.
+The constructor of `Delegate` translates the `TfLiteWebnnDelegateOptions` to `MLContextOptions`.
 
 The `delegate_` is an instance of `TfLiteDelegate`. It bridges `TfLiteDelegate` structure to `Delegate` class.
 
@@ -154,7 +158,7 @@ Since WebNN delegate doesn't allocate its own buffers, `TfLiteDelegate::CopyFrom
 
 `TfLiteDelegate::flags` is set to `kTfLiteDelegateFlagsNone` for basic functionality. WebNN delegate may support other flags, such as for dynamic sized tensors. 
 
-#### `Subgraph` class
+### `WebnnDelegateKernel` class
 
 `kSubgraphRegistration` is an instance of `TfLiteRegistration`. It bridges `TfLiteRegistration` structure to `Subgraph` class.
 
@@ -166,7 +170,7 @@ const TfLiteRegistration kSubgraphRegistration = {
     /*.invoke=*/SubgraphInvoke,
     /*.profiling_string=*/nullptr,
     /*.builtin_code=*/0,
-    /*.custom_name=*/"TfLiteWebNNDelegate",
+    /*.custom_name=*/"TfLiteWebnnDelegate",
     /*.version=*/2,
 };
 ```
@@ -268,6 +272,9 @@ static TfLiteStatus VisitAddNode(
 
 `VisitNode` is called by both `Delegate::PrepareOpsToDelegate` and `Subgraph::Create` for two different usages. When called by `Delegate::PrepareOpsToDelegate`, the `builder` will be an invalid `ml::GraphBuilder`. It leads `if (builder)` to be false. At that stage, it only checks whether this TFLite node is supported by WebNN or not. When called by `Subgraph::Create`, the `builder` will be a valid `ml::GraphBuilder`. It makes `if (builder)` to be true. At this stage, it builds the actual WebNN operation based on the TFLite node.
 
+### `WebnnDelegateProvider` class
+
+
 ### Alternatives Considered
 
 To access GPU, one alternative solution would be implementing a WebGL/WebGPU delegate. TensorFlow.js already uses WebGL and are working on a WebGPU backend. We believe this alternative is insufficient for two reasons. First, although graphics abstraction layers provide the flexibility of general programmability of the GPU graphics pipelines, they are unable to tap into hardware-specific optimizations and special instructions that are available to the operating system internals. The hardware ecosystem has been investing significantly in innovating in the ML space, and much of that is about improving the performance of intensive compute workloads in machine learning scenarios. Some key technologies that are important to model performance may not be uniformly accessible to applications through generic graphics pipeline states. Secondly, there are other accelerators, such as DPS and Edge TPU, that are not exposed through WebGL and WebGPU API. A WebGL/WebGPU delegate would not be able to enable the hardware accelerations on those accelerators.
@@ -321,6 +328,9 @@ struct TFLiteWebModelRunnerOptions {
 
   // Device preference of WebNN delegate: 0 - default, 1 - gpu, 2 - cpu.
   int webnn_device_preference = 0;
+
+  // Power preference of WebNN delegate: 0 - default, 1 - high-performance, 2 - low-power
+  int webnn_power_preference = 0;
 };
 
 TfLiteStatus TFLiteWebModelRunner::InitFromBuffer(
@@ -349,12 +359,13 @@ TfLiteStatus TFLiteWebModelRunner::InitFromBuffer(
 
   // Enable WebNN delegate if requested.
   if (options_.enable_webnn_delegate) {
-    TfLiteWebNNDelegateOptions options =
-        TfLiteWebNNDelegateOptionsDefault();
+    TfLiteWebnnDelegateOptions options =
+        TfLiteWebnnDelegateOptionsDefault();
     options.devicePreference = options_.webnn_device_preference;
-    auto webnn_delegate = TfLiteWebNNDelegateCreate(&options);
+    options.powerPreference = options_.webnn_power_preference;
+    auto webnn_delegate = TfLiteWebnnDelegateCreate(&options);
     auto delegate_ptr = tflite::Interpreter::TfLiteDelegatePtr(webnn_delegate, [](TfLiteDelegate* delegate) {
-      TfLiteWebNNDelegateDelete(delegate);
+      TfLiteWebnnDelegateDelete(delegate);
     });
     if (interpreter_->ModifyGraphWithDelegate(std::move(delegate_ptr)) != kTfLiteOk) {
         printf("Failed to apply webnn delegate.\n");
@@ -385,8 +396,9 @@ const modelRunnerResult =
         offset, modelBytes.length, {
         numThreads: Math.min(
             4, Math.max(1, (navigator.hardwareConcurrency || 1) / 2)),
-        enableWebNNDelegate: true,
-        webNNDevicePreference: 0)
+        enableWebnnDelegate: true,
+        webnnDevicePreference: 0,
+        webnnPowerPreference: 0)
     });
 if (!modelRunnerResult.ok()) {
     throw new Error(
