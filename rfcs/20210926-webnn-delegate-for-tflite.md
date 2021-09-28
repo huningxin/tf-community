@@ -3,7 +3,7 @@
 | Status        | (Proposed)       |
 :-------------- |:---------------------------------------------------- |
 | **RFC #**     | [NNN](https://github.com/tensorflow/community/pull/NNN) (update when you have community PR #)|
-| **Author(s)** | Ningxin Hu (ningxin.hu@intel.com)                    |
+| **Author(s)** | Ningxin Hu (ningxin.hu@intel.com), Chai Chaoweeraprasit (wchao@microsoft.com)  |
 | **Sponsor**   | Ping Yu (piyu@google.com)                            |
 | **Updated**   | 2021-09-26                                           |
 
