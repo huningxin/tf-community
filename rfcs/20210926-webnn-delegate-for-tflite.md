@@ -273,7 +273,42 @@ static TfLiteStatus VisitConv2DNode(
 
 ### `WebnnDelegateProvider` class
 
+`WebnnDelegateProvider` may be declared as following:
 
+```c++
+class WebnnDelegateProvider : public DelegateProvider {
+ public:
+  WebnnDelegateProvider();
+
+  std::vector<Flag> CreateFlags(ToolParams* params) const final;
+
+  void LogParams(const ToolParams& params, bool verbose) const final;
+
+  TfLiteDelegatePtr CreateTfLiteDelegate(const ToolParams& params) const final;
+  std::pair<TfLiteDelegatePtr, int> CreateRankedTfLiteDelegate(
+      const ToolParams& params) const final;
+
+  std::string GetName() const final { return "WebNN"; }
+};
+```
+
+As a client of `DelegateProvider`, `WebnnDelegateProvider` implements the following methods:
+
+`CreateFlags` creates a list of command-line parsable flags based on tool params inside `params` whose value will be set to the corresponding runtime flag value. Please see details of the tool flags of WebNN in the following table:
+
+| Name | Type | Usage | Default value |
+|---|---|---|---|
+| use_webnn | bool | Use WebNN delegate | false |
+| webnn_device_preference | uint32_t | WebNN device preference (0:default, 1:gpu, 2:cpu) | 0 |
+| webnn_power_preference | uint32_t | WebNN power preference (0:default, 1:high-performance, 2:low-power) | 0 |
+
+`LogParams` logs tool params via `LOG_TOOL_PARAM`.
+
+`CreateTfLiteDelegate` translates the tool params to `TfLiteWebnnDelegateOptions` and creates a WebnnDelegate based on that options.
+
+`CreateRankedTfLiteDelegate` same as `CreateTfLiteDelegate`.
+
+`GetName` returns "WebNN".
 
 ### Alternatives Considered
 
